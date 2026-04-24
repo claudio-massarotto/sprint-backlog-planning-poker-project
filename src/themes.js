@@ -1,0 +1,43 @@
+export const THEMES = {
+  casino: {
+    name: 'Casino Classic', suit: '♦',
+    bg: '#0b2318', bgGrad: 'radial-gradient(ellipse at 50% -10%, #1a4731 0%, #0b2318 65%)',
+    felt: '#143828', feltBorder: 'rgba(212,168,67,.18)',
+    gold: '#d4a843', goldLight: '#f0c866', goldDim: 'rgba(212,168,67,.25)',
+    cardFace: '#fffef5', cardBorder: '#c8b87a', cardText: '#1a1005',
+    cardBack: '#1a2f5a', cardBackStripe: '#13234a',
+    panel: 'rgba(10,28,18,.9)', panelBorder: 'rgba(212,168,67,.2)',
+    text: '#fffef5', textMuted: 'rgba(255,254,245,.5)',
+    btn: '#c8973a', btnText: '#1a1005',
+    danger: '#e05252', success: '#4caf82',
+    badge: 'rgba(212,168,67,.15)', badgeBorder: 'rgba(212,168,67,.35)',
+  },
+  midnight: {
+    name: 'Midnight Blue', suit: '♠',
+    bg: '#07101f', bgGrad: 'radial-gradient(ellipse at 50% -10%, #1e293b 0%, #07101f 65%)',
+    felt: '#0f1c30', feltBorder: 'rgba(129,140,248,.15)',
+    gold: '#818cf8', goldLight: '#a5b4fc', goldDim: 'rgba(129,140,248,.2)',
+    cardFace: '#f8fafc', cardBorder: '#cbd5e1', cardText: '#0f172a',
+    cardBack: '#1e3a5f', cardBackStripe: '#183352',
+    panel: 'rgba(7,16,31,.9)', panelBorder: 'rgba(129,140,248,.18)',
+    text: '#e2e8f0', textMuted: 'rgba(226,232,240,.45)',
+    btn: '#4f46e5', btnText: '#fff',
+    danger: '#ef4444', success: '#22c55e',
+    badge: 'rgba(99,102,241,.15)', badgeBorder: 'rgba(99,102,241,.3)',
+  },
+  royal: {
+    name: 'Royal Burgundy', suit: '♥',
+    bg: '#1c0510', bgGrad: 'radial-gradient(ellipse at 50% -10%, #4a0e24 0%, #1c0510 65%)',
+    felt: '#2d0816', feltBorder: 'rgba(245,158,11,.15)',
+    gold: '#f59e0b', goldLight: '#fbbf24', goldDim: 'rgba(245,158,11,.2)',
+    cardFace: '#fff9f0', cardBorder: '#d97706', cardText: '#1a0800',
+    cardBack: '#7f1d1d', cardBackStripe: '#6b1919',
+    panel: 'rgba(28,5,16,.9)', panelBorder: 'rgba(245,158,11,.18)',
+    text: '#fff9f0', textMuted: 'rgba(255,249,240,.48)',
+    btn: '#b45309', btnText: '#fff9f0',
+    danger: '#dc2626', success: '#16a34a',
+    badge: 'rgba(245,158,11,.12)', badgeBorder: 'rgba(245,158,11,.28)',
+  },
+};
+
+export const FIBONACCI = [1, 2, 3, 5, 8, 13, 21, '?'];

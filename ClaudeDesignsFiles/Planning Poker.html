@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planning Poker — Sprint Backlog</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body,#root{height:100%;width:100%}
+    body{font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased}
+    ::-webkit-scrollbar{width:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px}
+    input::placeholder{opacity:.45}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    @keyframes flipIn{from{transform:rotateY(90deg) scale(.8);opacity:0}to{transform:rotateY(0deg) scale(1);opacity:1}}
+    @keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--pulse-color)}50%{box-shadow:0 0 0 8px transparent}}
+    .fade-in{animation:fadeIn .3s ease both}
+    .flip-in{animation:flipIn .4s cubic-bezier(.34,1.56,.64,1) both}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// ── THEMES ────────────────────────────────────────────────────────────────────
+const THEMES = {
+  casino: {
+    name:'Casino Classic', suit:'♦',
+    bg:'#0b2318', bgGrad:'radial-gradient(ellipse at 50% -10%, #1a4731 0%, #0b2318 65%)',
+    felt:'#143828', feltBorder:'rgba(212,168,67,.18)',
+    gold:'#d4a843', goldLight:'#f0c866', goldDim:'rgba(212,168,67,.25)',
+    cardFace:'#fffef5', cardBorder:'#c8b87a', cardText:'#1a1005',
+    cardBack:'#1a2f5a', cardBackStripe:'#13234a',
+    panel:'rgba(10,28,18,.9)', panelBorder:'rgba(212,168,67,.2)',
+    text:'#fffef5', textMuted:'rgba(255,254,245,.5)',
+    btn:'#c8973a', btnText:'#1a1005',
+    danger:'#e05252', success:'#4caf82',
+    badge:'rgba(212,168,67,.15)', badgeBorder:'rgba(212,168,67,.35)',
+  },
+  midnight: {
+    name:'Midnight Blue', suit:'♠',
+    bg:'#07101f', bgGrad:'radial-gradient(ellipse at 50% -10%, #1e293b 0%, #07101f 65%)',
+    felt:'#0f1c30', feltBorder:'rgba(129,140,248,.15)',
+    gold:'#818cf8', goldLight:'#a5b4fc', goldDim:'rgba(129,140,248,.2)',
+    cardFace:'#f8fafc', cardBorder:'#cbd5e1', cardText:'#0f172a',
+    cardBack:'#1e3a5f', cardBackStripe:'#183352',
+    panel:'rgba(7,16,31,.9)', panelBorder:'rgba(129,140,248,.18)',
+    text:'#e2e8f0', textMuted:'rgba(226,232,240,.45)',
+    btn:'#4f46e5', btnText:'#fff',
+    danger:'#ef4444', success:'#22c55e',
+    badge:'rgba(99,102,241,.15)', badgeBorder:'rgba(99,102,241,.3)',
+  },
+  royal: {
+    name:'Royal Burgundy', suit:'♥',
+    bg:'#1c0510', bgGrad:'radial-gradient(ellipse at 50% -10%, #4a0e24 0%, #1c0510 65%)',
+    felt:'#2d0816', feltBorder:'rgba(245,158,11,.15)',
+    gold:'#f59e0b', goldLight:'#fbbf24', goldDim:'rgba(245,158,11,.2)',
+    cardFace:'#fff9f0', cardBorder:'#d97706', cardText:'#1a0800',
+    cardBack:'#7f1d1d', cardBackStripe:'#6b1919',
+    panel:'rgba(28,5,16,.9)', panelBorder:'rgba(245,158,11,.18)',
+    text:'#fff9f0', textMuted:'rgba(255,249,240,.48)',
+    btn:'#b45309', btnText:'#fff9f0',
+    danger:'#dc2626', success:'#16a34a',
+    badge:'rgba(245,158,11,.12)', badgeBorder:'rgba(245,158,11,.28)',
+  },
+};
+
+const FIBONACCI = [1, 2, 3, 5, 8, 13, 21, '?'];
+const SESSION_PFX = 'pp_sess_';
+const HISTORY_KEY = 'pp_history';
+
+// ── STORAGE ───────────────────────────────────────────────────────────────────
+const genId = (n=6) => Math.random().toString(36).substring(2, 2+n).toUpperCase();
+const loadSession  = id  => { try { return JSON.parse(localStorage.getItem(SESSION_PFX+id)); } catch { return null; } };
+const saveSession  = s   => localStorage.setItem(SESSION_PFX+s.id, JSON.stringify(s));
+const loadHistory  = ()  => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY))||[]; } catch { return []; } };
+const saveHistory  = h   => localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+const loadPlayer   = ()  => { try { return JSON.parse(sessionStorage.getItem('pp_player')); } catch { return null; } };
+const savePlayer   = p   => p ? sessionStorage.setItem('pp_player', JSON.stringify(p)) : sessionStorage.removeItem('pp_player');
+
+function createSession(hostName, timerLimit) {
+  const id = genId(4);
+  const pid = genId(10);
+  const sess = {
+    id, hostId: pid, timerLimit,
+    stories: [], players: [{ id:pid, name:hostName, role:'facilitator' }],
+    currentStoryId: null, phase:'lobby', timerStart: null, createdAt: Date.now(),
+  };
+  saveSession(sess);
+  savePlayer({ id:pid, name:hostName, role:'facilitator', sessionId:id });
+  return { sess, pid };
+}
+
+function joinSession(code, name) {
+  const sess = loadSession(code.toUpperCase());
+  if (!sess) return null;
+  const pid = genId(10);
+  sess.players = [...sess.players.filter(p => p.name !== name || p.role === 'facilitator'), { id:pid, name, role:'player' }];
+  saveSession(sess);
+  savePlayer({ id:pid, name, role:'player', sessionId:sess.id });
+  return { sess, pid };
+}
+
+function computeStats(votes) {
+  const nums = Object.values(votes).filter(v => typeof v === 'number').sort((a,b)=>a-b);
+  if (!nums.length) return null;
+  const mean   = (nums.reduce((s,v)=>s+v,0)/nums.length).toFixed(1);
+  const mid    = Math.floor(nums.length/2);
+  const median = nums.length%2===0 ? ((nums[mid-1]+nums[mid])/2).toFixed(1) : String(nums[mid]);
+  return { mean, median, range:`${nums[0]}–${nums[nums.length-1]}`, consensus: nums.every(v=>v===nums[0]), nums };
+}
+
+// ── PLAYING CARD ───────────────────────────────────────────────────────────────
+function PlayingCard({ value, selected, onClick, size='md', faceDown=false, dim=false, T, delay=0 }) {
+  const sz = { sm:{w:54,h:82,fs:'1.1rem',cs:'0.58rem'}, md:{w:74,h:112,fs:'1.9rem',cs:'0.72rem'}, lg:{w:96,h:144,fs:'2.4rem',cs:'0.88rem'} }[size];
+  const isHigh = (typeof value==='number' && value>=13) || value==='?';
+  const vColor = isHigh ? T.gold : T.cardText;
+
+  if (faceDown) return (
+    <div style={{ width:sz.w, height:sz.h, borderRadius:9, flexShrink:0,
+      background:`repeating-linear-gradient(45deg, ${T.cardBack} 0px, ${T.cardBack} 5px, ${T.cardBackStripe} 5px, ${T.cardBackStripe} 10px)`,
+      border:`2px solid ${T.cardBorder}55`, boxShadow:'0 4px 14px rgba(0,0,0,.45)',
+    }} />
+  );
+
+  return (
+    <div onClick={onClick}
+      className={delay ? 'flip-in' : ''}
+      style={{
+        animationDelay: delay ? `${delay}ms` : undefined,
+        width:sz.w, height:sz.h, borderRadius:9, flexShrink:0, position:'relative',
+        background: T.cardFace,
+        border:`2px solid ${selected ? T.gold : T.cardBorder}`,
+        boxShadow: selected
+          ? `0 20px 40px ${T.gold}55, 0 0 0 3px ${T.gold}88`
+          : `0 4px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.9)`,
+        cursor: onClick ? 'pointer' : 'default',
+        transform: selected ? 'translateY(-18px) rotate(-1deg)' : 'none',
+        transition:'all .22s cubic-bezier(.34,1.56,.64,1)',
+        display:'flex', alignItems:'center', justifyContent:'center',
+        opacity: dim ? .45 : 1,
+        '--pulse-color': T.gold+'66',
+      }}
+    >
+      <span style={{ position:'absolute', top:5, left:7, fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:sz.cs, color:vColor, lineHeight:1.1, userSelect:'none' }}>
+        {value}<br/><span style={{ fontSize:'0.8em' }}>{T.suit}</span>
+      </span>
+      <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:sz.fs, color:vColor, userSelect:'none' }}>{value}</span>
+      <span style={{ position:'absolute', bottom:5, right:7, fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:sz.cs, color:vColor, lineHeight:1.1, transform:'rotate(180deg)', textAlign:'center', userSelect:'none' }}>
+        {value}<br/><span style={{ fontSize:'0.8em' }}>{T.suit}</span>
+      </span>
+      <div style={{ position:'absolute', inset:4, borderRadius:5, border:`1px solid ${T.cardBorder}66`, pointerEvents:'none' }} />
+    </div>
+  );
+}
+
+// ── TIMER ─────────────────────────────────────────────────────────────────────
+function useTimer(session) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!session?.timerStart) { setElapsed(0); return; }
+    const tick = () => setElapsed(Math.floor((Date.now()-session.timerStart)/1000));
+    tick();
+    const iv = setInterval(tick, 500);
+    return () => clearInterval(iv);
+  }, [session?.timerStart]);
+  return elapsed;
+}
+
+function TimerBar({ elapsed, limit, T }) {
+  const rem = Math.max(0, limit-elapsed);
+  const pct = (rem/limit)*100;
+  const urgent = rem<20 && rem>0;
+  const m = Math.floor(rem/60), s = String(rem%60).padStart(2,'0');
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+      <div style={{ width:110, height:5, borderRadius:3, background:'rgba(255,255,255,.12)', overflow:'hidden' }}>
+        <div style={{ height:'100%', width:`${pct}%`, background:urgent?T.danger:T.gold, borderRadius:3, transition:'width .5s' }} />
+      </div>
+      <span style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.05rem', color:urgent?T.danger:T.gold, fontWeight:600, minWidth:42 }}>{m}:{s}</span>
+    </div>
+  );
+}
+
+// ── HOME VIEW ─────────────────────────────────────────────────────────────────
+function HomeView({ onReady, timerLimit, T }) {
+  const [tab, setTab] = useState('create');
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [err,  setErr]  = useState('');
+
+  const inp = { background:'rgba(255,255,255,.07)', border:`1px solid ${T.goldDim}`, borderRadius:8, padding:'12px 16px', color:T.text, fontSize:'1rem', fontFamily:'Inter', width:'100%', outline:'none', transition:'border .15s' };
+  const btnStyle = { background:T.btn, color:T.btnText, border:'none', borderRadius:9, padding:'13px 32px', fontFamily:'Inter', fontWeight:700, fontSize:'1rem', cursor:'pointer', width:'100%', marginTop:6 };
+
+  const doCreate = () => {
+    if (!name.trim()) return setErr('Inserisci il tuo nome / Enter your name');
+    const { sess, pid } = createSession(name.trim(), timerLimit);
+    onReady(sess, pid);
+  };
+  const doJoin = () => {
+    if (!name.trim()||!code.trim()) return setErr('Compila tutti i campi / Fill all fields');
+    const res = joinSession(code, name.trim());
+    if (!res) return setErr('Sessione non trovata / Session not found');
+    onReady(res.sess, res.pid);
+  };
+
+  return (
+    <div style={{ minHeight:'100vh', background:T.bgGrad, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24 }}>
+      {/* Logo row */}
+      <div className="fade-in" style={{ textAlign:'center', marginBottom:48 }}>
+        <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:18 }}>
+          {[1,5,13].map((v,i) => <PlayingCard key={v} value={v} size="sm" T={T} delay={i*60} />)}
+        </div>
+        <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize:'2.4rem', color:T.text, fontWeight:700, letterSpacing:'-.02em' }}>Planning Poker</h1>
+        <p style={{ color:T.textMuted, marginTop:6, fontSize:'.9rem', letterSpacing:'.04em', textTransform:'uppercase' }}>Sprint Backlog Estimation</p>
+      </div>
+
+      {/* Panel */}
+      <div className="fade-in" style={{ background:T.panel, border:`1px solid ${T.panelBorder}`, borderRadius:16, padding:36, width:'100%', maxWidth:420, backdropFilter:'blur(16px)' }}>
+        <div style={{ display:'flex', marginBottom:28, background:'rgba(0,0,0,.25)', borderRadius:9, padding:4 }}>
+          {['create','join'].map(t => (
+            <button key={t} onClick={() => { setTab(t); setErr(''); }} style={{
+              flex:1, padding:'10px', border:'none', borderRadius:6,
+              background: tab===t ? T.gold : 'transparent',
+              color: tab===t ? T.btnText : T.textMuted,
+              cursor:'pointer', fontFamily:'Inter', fontWeight:600, fontSize:'.88rem', transition:'all .2s',
+            }}>
+              {t==='create' ? '+ Crea Sessione' : '→ Unisciti'}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          {tab==='join' && (
+            <div>
+              <label style={{ display:'block', color:T.textMuted, fontSize:'.75rem', marginBottom:5, textTransform:'uppercase', letterSpacing:'.08em' }}>Codice Sessione</label>
+              <input style={{ ...inp, textTransform:'uppercase', letterSpacing:'.25em', fontSize:'1.5rem', textAlign:'center', fontFamily:"'Playfair Display',serif", fontWeight:700 }}
+                value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="XXXX" maxLength={4} />
+            </div>
+          )}
+          <div>
+            <label style={{ display:'block', color:T.textMuted, fontSize:'.75rem', marginBottom:5, textTransform:'uppercase', letterSpacing:'.08em' }}>Il tuo nome / Your name</label>
+            <input style={inp} value={name} onChange={e=>setName(e.target.value)}
+              placeholder={tab==='create' ? 'Facilitatore' : 'Team Member'}
+              onKeyDown={e=>e.key==='Enter'&&(tab==='create'?doCreate():doJoin())} />
+          </div>
+          {err && <p style={{ color:T.danger, fontSize:'.83rem', textAlign:'center' }}>{err}</p>}
+          <button style={btnStyle} onClick={tab==='create'?doCreate:doJoin}>
+            {tab==='create' ? 'Crea Sessione' : 'Entra nella Sessione'}
+          </button>
+        </div>
+      </div>
+
+      {loadHistory().length>0 && (
+        <button onClick={() => onReady(null,null,'history')} style={{ marginTop:20, background:'none', border:`1px solid ${T.goldDim}`, borderRadius:8, padding:'8px 20px', color:T.textMuted, cursor:'pointer', fontSize:'.83rem' }}>
+          📊 Storico Sprint ({loadHistory().length})
+        </button>
+      )}
+
+      <p style={{ marginTop:32, color:T.textMuted, fontSize:'.78rem', opacity:.6, textAlign:'center', maxWidth:340 }}>
+        Ogni scheda del browser può partecipare come player — condividi il codice con il team
+      </p>
+    </div>
+  );
+}
+
+// ── RESULTS PANEL ─────────────────────────────────────────────────────────────
+function ResultsPanel({ session, story, onAccept, onRevote, readonly, T }) {
+  const stats   = useMemo(() => computeStats(story.votes), [story.votes]);
+  const players = session.players;
+  const fibNums = FIBONACCI.filter(v => typeof v==='number');
+  const [chosen, setChosen] = useState(() => {
+    if (!stats) return null;
+    if (stats.consensus) return Number(stats.median);
+    const mean = parseFloat(stats.mean);
+    return fibNums.reduce((p,c) => Math.abs(c-mean)<Math.abs(p-mean)?c:p);
+  });
+
+  if (!stats) return <div style={{ color:T.textMuted }}>Nessun voto registrato.</div>;
+
+  return (
+    <div style={{ width:'100%', maxWidth:680 }}>
+      <div style={{ textAlign:'center', marginBottom:28 }}>
+        <div style={{ fontSize:'.72rem', color:T.textMuted, textTransform:'uppercase', letterSpacing:'.1em', marginBottom:8 }}>Risultati / Results</div>
+        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.7rem', color:T.text, lineHeight:1.3 }}>{story.title}</h2>
+      </div>
+
+      {/* Cards row */}
+      <div style={{ display:'flex', gap:14, justifyContent:'center', flexWrap:'wrap', marginBottom:32 }}>
+        {players.filter(p=>story.votes[p.id]!==undefined).map((p,i) => (
+          <div key={p.id} style={{ textAlign:'center' }}>
+            <PlayingCard value={story.votes[p.id]} size="md" T={T} delay={i*60} />
+            <div style={{ fontSize:'.72rem', color:T.textMuted, marginTop:6, maxWidth:76, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', margin:'6px auto 0' }}>{p.name}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Stats */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:24 }}>
+        {[['Media','Mean',stats.mean],['Mediana','Median',stats.median],['Range','Range',stats.range]].map(([it,en,val])=>(
+          <div key={it} style={{ background:'rgba(255,255,255,.05)', border:`1px solid ${T.goldDim}`, borderRadius:12, padding:'14px 12px', textAlign:'center' }}>
+            <div style={{ fontSize:'.7rem', color:T.textMuted, marginBottom:6, textTransform:'uppercase', letterSpacing:'.07em' }}>{it}<span style={{ opacity:.5 }}> / {en}</span></div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.6rem', fontWeight:700, color:T.gold }}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {!readonly && (
+        <>
+          <div style={{ textAlign:'center', marginBottom:12, fontSize:'.85rem', color: stats.consensus?T.success:T.textMuted, fontWeight:600 }}>
+            {stats.consensus ? '✅ Consenso raggiunto! / Consensus reached!' : 'Seleziona la stima finale / Select final estimate:'}
+          </div>
+          <div style={{ display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap', marginBottom:22 }}>
+            {fibNums.map(v=>(
+              <button key={v} onClick={()=>setChosen(v)} style={{
+                width:44, height:44, borderRadius:8, cursor:'pointer',
+                background: chosen===v ? T.btn : 'rgba(255,255,255,.07)',
+                border:`2px solid ${chosen===v?T.gold:T.goldDim}`,
+                color: chosen===v ? T.btnText : T.text,
+                fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:'1rem', transition:'all .15s',
+              }}>{v}</button>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:12, justifyContent:'center' }}>
+            <button onClick={()=>chosen!=null&&onAccept(chosen)} style={{
+              background: chosen!=null?T.btn:`${T.btn}66`, color:T.btnText, border:'none', borderRadius:10,
+              padding:'13px 30px', fontFamily:'Inter', fontWeight:700, cursor:chosen!=null?'pointer':'not-allowed', transition:'all .2s',
+            }}>✅ Accetta {chosen!=null?`(${chosen} SP)`:''}</button>
+            <button onClick={onRevote} style={{ background:'rgba(255,255,255,.07)', color:T.text, border:`1px solid ${T.goldDim}`, borderRadius:10, padding:'13px 24px', fontFamily:'Inter', fontWeight:600, cursor:'pointer' }}>
+              🔄 Rivota
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── FACILITATOR VIEW ──────────────────────────────────────────────────────────
+function FacilitatorView({ initSess, pid, onEnd, autoReveal, T }) {
+  const [sess, setSess] = useState(initSess);
+  const [tab, setTab]   = useState('stories');
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ title:'', desc:'' });
+  const elapsed = useTimer(sess);
+
+  const sync = useCallback(() => { const s=loadSession(sess.id); if(s) setSess(s); }, [sess.id]);
+
+  useEffect(() => {
+    const h = e => { if(e.key===SESSION_PFX+sess.id){ try{setSess(JSON.parse(e.newValue));}catch{} } };
+    window.addEventListener('storage', h);
+    const iv = setInterval(sync, 900);
+    return () => { window.removeEventListener('storage',h); clearInterval(iv); };
+  }, [sess.id, sync]);
+
+  // Auto-reveal when all voted
+  useEffect(() => {
+    if (!autoReveal || sess.phase!=='voting' || !sess.currentStoryId) return;
+    const story = sess.stories.find(s=>s.id===sess.currentStoryId);
+    if (!story) return;
+    const voters = sess.players.filter(p=>p.role!=='facilitator');
+    if (voters.length>0 && voters.every(p=>story.votes[p.id]!==undefined)) {
+      mutate(s=>({ ...s, phase:'revealed', stories:s.stories.map(st=>st.id===s.currentStoryId?{...st,status:'revealed'}:st) }));
+    }
+  }, [sess]);
+
+  const mutate = fn => {
+    setSess(prev=>{
+      const next = fn({...prev, stories:[...prev.stories], players:[...prev.players]});
+      saveSession(next); return next;
+    });
+  };
+
+  const addStory = () => {
+    if (!form.title.trim()) return;
+    mutate(s=>({ ...s, stories:[...s.stories,{id:genId(10),title:form.title.trim(),desc:form.desc.trim(),status:'pending',votes:{},estimate:null}] }));
+    setForm({title:'',desc:''}); setShowAdd(false);
+  };
+
+  const startVoting = storyId => mutate(s=>({
+    ...s, currentStoryId:storyId, phase:'voting', timerStart:Date.now(),
+    stories:s.stories.map(st=>st.id===storyId?{...st,status:'voting',votes:{}}:st.status==='voting'?{...st,status:'pending'}:st)
+  }));
+
+  const reveal = () => mutate(s=>({ ...s, phase:'revealed', stories:s.stories.map(st=>st.id===s.currentStoryId?{...st,status:'revealed'}:st) }));
+
+  const acceptEstimate = est => mutate(s=>({
+    ...s, phase:'lobby', currentStoryId:null, timerStart:null,
+    stories:s.stories.map(st=>st.id===s.currentStoryId?{...st,status:'done',estimate:est}:st)
+  }));
+
+  const revote = () => mutate(s=>({ ...s, phase:'voting', timerStart:Date.now(), stories:s.stories.map(st=>st.id===s.currentStoryId?{...st,votes:{},status:'voting'}:st) }));
+
+  const finishSprint = () => {
+    const done = sess.stories.filter(s=>s.status==='done');
+    if (done.length===0 && !window.confirm('Nessuna storia stimata. Terminare lo sprint?')) return;
+    const h = loadHistory();
+    const record = { id:sess.id, date:Date.now(), stories:done, players:sess.players.length };
+    h.unshift(record);
+    saveHistory(h);
+    // Signal players that sprint is finished
+    mutate(s=>({ ...s, phase:'finished', finishedAt:Date.now(), finishedStories:done }));
+    setTimeout(() => { savePlayer(null); onEnd(); }, 400);
+  };
+
+  const story    = sess.stories.find(s=>s.id===sess.currentStoryId);
+  const voters   = sess.players.filter(p=>p.role!=='facilitator');
+  const votesCnt = story ? Object.keys(story.votes).length : 0;
+  const doneCnt  = sess.stories.filter(s=>s.status==='done').length;
+
+  const inp = { background:'rgba(255,255,255,.07)', border:`1px solid ${T.goldDim}`, borderRadius:8, padding:'10px 14px', color:T.text, fontSize:'.93rem', fontFamily:'Inter', outline:'none', width:'100%' };
+  const pill = (active,label,onClick) => (
+    <button onClick={onClick} style={{ flex:1, padding:'11px', border:'none', background:active?`${T.gold}22`:'transparent', color:active?T.gold:T.textMuted, borderBottom:`2px solid ${active?T.gold:'transparent'}`, cursor:'pointer', fontFamily:'Inter', fontWeight:600, fontSize:'.83rem', transition:'all .2s' }}>{label}</button>
+  );
+
+  return (
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, color:T.text, fontFamily:'Inter', overflow:'hidden' }}>
+      {/* Top bar */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 24px', height:60, borderBottom:`1px solid ${T.panelBorder}`, background:'rgba(0,0,0,.3)', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+          <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, color:T.gold, fontSize:'1.15rem' }}>Planning Poker</span>
+          <div style={{ background:T.badge, border:`1px solid ${T.badgeBorder}`, borderRadius:6, padding:'4px 14px', display:'flex', gap:8, alignItems:'center' }}>
+            <span style={{ fontSize:'.7rem', color:T.textMuted, textTransform:'uppercase', letterSpacing:'.08em' }}>Session</span>
+            <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, letterSpacing:'.22em', color:T.gold, fontSize:'1.1rem' }}>{sess.id}</span>
+          </div>
+          <span style={{ fontSize:'.82rem', color:T.textMuted }}>👥 {sess.players.length} · ✅ {doneCnt}/{sess.stories.length}</span>
+        </div>
+        <div style={{ display:'flex', gap:14, alignItems:'center' }}>
+          {sess.phase==='voting' && <TimerBar elapsed={elapsed} limit={sess.timerLimit} T={T} />}
+          <button onClick={finishSprint} style={{ background:'rgba(255,255,255,.07)', border:`1px solid ${T.goldDim}`, borderRadius:7, padding:'7px 14px', color:T.textMuted, cursor:'pointer', fontFamily:'Inter', fontSize:'.8rem' }}>Fine Sprint</button>
+        </div>
+      </div>
+
+      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+        {/* Sidebar */}
+        <div style={{ width:310, borderRight:`1px solid ${T.panelBorder}`, display:'flex', flexDirection:'column', background:'rgba(0,0,0,.15)', flexShrink:0 }}>
+          <div style={{ display:'flex', borderBottom:`1px solid ${T.panelBorder}` }}>
+            {pill(tab==='stories', `📋 Stories (${sess.stories.length})`, ()=>setTab('stories'))}
+            {pill(tab==='players', `👥 Players (${sess.players.length})`, ()=>setTab('players'))}
+          </div>
+          <div style={{ flex:1, overflowY:'auto', padding:14 }}>
+            {tab==='stories' ? (
+              <>
+                {sess.stories.map((st,i)=>{
+                  const active = st.id===sess.currentStoryId;
+                  return (
+                    <div key={st.id} onClick={()=>st.status!=='done'&&startVoting(st.id)}
+                      style={{ padding:'12px 14px', borderRadius:10, marginBottom:9, border:`1px solid ${active?T.gold:T.goldDim}`, background:active?`${T.gold}12`:'rgba(255,255,255,.03)', cursor:st.status==='done'?'default':'pointer', transition:'all .15s', opacity:st.status==='done'?.65:1 }}>
+                      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:'.68rem', color:T.textMuted, marginBottom:3 }}>#{i+1}</div>
+                          <div style={{ fontSize:'.88rem', fontWeight:600, lineHeight:1.35 }}>{st.title}</div>
+                          {st.desc && <div style={{ fontSize:'.75rem', color:T.textMuted, marginTop:3, lineHeight:1.4 }}>{st.desc}</div>}
+                        </div>
+                        <div style={{ flexShrink:0, marginTop:2 }}>
+                          {st.status==='done' ? <span style={{ background:`${T.success}22`, border:`1px solid ${T.success}66`, borderRadius:6, padding:'3px 9px', fontSize:'.83rem', color:T.success, fontWeight:700 }}>{st.estimate}</span>
+                          : active ? <span style={{ background:T.badge, border:`1px solid ${T.badgeBorder}`, borderRadius:6, padding:'3px 8px', fontSize:'.7rem', color:T.gold }}>VOTING</span>
+                          : <span style={{ background:'rgba(255,255,255,.06)', borderRadius:6, padding:'3px 8px', fontSize:'.7rem', color:T.textMuted }}>PENDING</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {showAdd ? (
+                  <div style={{ background:'rgba(255,255,255,.04)', border:`1px solid ${T.goldDim}`, borderRadius:10, padding:14 }}>
+                    <input style={{ ...inp, marginBottom:9 }} placeholder="Titolo storia *" value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} autoFocus onKeyDown={e=>e.key==='Enter'&&addStory()} />
+                    <input style={{ ...inp, marginBottom:12 }} placeholder="Descrizione (opzionale)" value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} />
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button style={{ flex:1, background:T.btn, color:T.btnText, border:'none', borderRadius:8, padding:'9px', fontFamily:'Inter', fontWeight:700, cursor:'pointer' }} onClick={addStory}>Aggiungi</button>
+                      <button style={{ background:'rgba(255,255,255,.07)', border:'none', borderRadius:8, padding:'9px 14px', color:T.textMuted, cursor:'pointer' }} onClick={()=>setShowAdd(false)}>✕</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button style={{ width:'100%', border:`1px dashed ${T.goldDim}`, borderRadius:10, padding:'12px', background:'none', color:T.textMuted, cursor:'pointer', fontFamily:'Inter', fontSize:'.85rem' }} onClick={()=>setShowAdd(true)}>
+                    + Aggiungi Storia
+                  </button>
+                )}
+              </>
+            ) : (
+              sess.players.map(p=>(
+                <div key={p.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'11px 14px', borderRadius:10, marginBottom:8, background:'rgba(255,255,255,.04)', border:`1px solid ${T.goldDim}` }}>
+                  <div style={{ width:36, height:36, borderRadius:'50%', background:T.badge, border:`2px solid ${T.badgeBorder}`, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, color:T.gold, fontSize:'.9rem', flexShrink:0 }}>
+                    {p.name[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:600, fontSize:'.88rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</div>
+                    <div style={{ fontSize:'.72rem', color:T.textMuted }}>{p.role==='facilitator'?'👑 Facilitatore':'🎴 Player'}</div>
+                  </div>
+                  {story && sess.phase==='voting' && p.role!=='facilitator' && (
+                    <span style={{ fontSize:'.82rem', color:story.votes[p.id]!==undefined?T.success:T.textMuted }}>
+                      {story.votes[p.id]!==undefined?'✅':'⏳'}
+                    </span>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Center stage */}
+        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:40, overflowY:'auto' }}>
+          {!story ? (
+            <div style={{ textAlign:'center' }} className="fade-in">
+              <div style={{ display:'flex', gap:12, justifyContent:'center', marginBottom:32, opacity:.35 }}>
+                {[1,3,5,8,13].map(v=><PlayingCard key={v} value={v} size="md" T={T} />)}
+              </div>
+              <p style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.5rem', color:T.textMuted, fontWeight:400 }}>
+                {sess.stories.length===0 ? 'Aggiungi user stories per iniziare' : 'Clicca una storia per avviare la votazione'}
+              </p>
+              <p style={{ color:T.textMuted, marginTop:12, fontSize:'.88rem', opacity:.6 }}>
+                Condividi il codice <strong style={{ color:T.gold, letterSpacing:'.15em' }}>{sess.id}</strong> con il team
+              </p>
+            </div>
+          ) : sess.phase==='voting' ? (
+            <div style={{ width:'100%', maxWidth:560, textAlign:'center' }} className="fade-in">
+              <div style={{ fontSize:'.72rem', color:T.textMuted, textTransform:'uppercase', letterSpacing:'.1em', marginBottom:10 }}>Votazione in corso</div>
+              <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.8rem', color:T.text, marginBottom:8, lineHeight:1.3 }}>{story.title}</h2>
+              {story.desc && <p style={{ color:T.textMuted, marginBottom:26, fontSize:'.9rem' }}>{story.desc}</p>}
+              <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap', marginBottom:30 }}>
+                {voters.map((p,i)=>(
+                  <div key={p.id} style={{ textAlign:'center' }}>
+                    <PlayingCard value={story.votes[p.id]!==undefined?'✓':'?'} size="sm" faceDown={story.votes[p.id]===undefined} T={T} />
+                    <div style={{ fontSize:'.65rem', color:T.textMuted, marginTop:5, maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</div>
+                  </div>
+                ))}
+              </div>
+              <p style={{ color:T.textMuted, marginBottom:20, fontSize:'.9rem' }}>{votesCnt} / {voters.length} voti ricevuti</p>
+              <button onClick={reveal} style={{ background:T.btn, color:T.btnText, border:'none', borderRadius:10, padding:'14px 38px', fontFamily:'Inter', fontWeight:700, fontSize:'1rem', cursor:'pointer', opacity:votesCnt>0?1:.6 }}>
+                🃏 Rivela i Voti
+              </button>
+            </div>
+          ) : sess.phase==='revealed' ? (
+            <ResultsPanel session={sess} story={story} onAccept={acceptEstimate} onRevote={revote} T={T} />
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PLAYER SPRINT REPORT ──────────────────────────────────────────────────────
+function PlayerSprintReport({ sess, onBack, T }) {
+  const stories = sess.finishedStories || sess.stories.filter(s=>s.status==='done');
+  const totalSP = stories.reduce((s,st)=>s+(st.estimate||0),0);
+  const fibNums = FIBONACCI.filter(v=>typeof v==='number');
+  const counts  = {};
+  fibNums.forEach(v=>{ counts[v]=stories.filter(s=>s.estimate===v).length; });
+  const maxCnt  = Math.max(...Object.values(counts), 1);
+
+  return (
+    <div style={{ minHeight:'100vh', background:T.bgGrad, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', padding:'40px 24px', overflowY:'auto' }}>
+      <div style={{ width:'100%', maxWidth:680 }} className="fade-in">
+        {/* Header */}
+        <div style={{ textAlign:'center', marginBottom:40 }}>
+          <div style={{ fontSize:'2.2rem', marginBottom:10 }}>🎉</div>
+          <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize:'2rem', color:T.gold, marginBottom:6 }}>Sprint Completato!</h1>
+          <p style={{ color:T.textMuted, fontSize:'.9rem' }}>Sessione <strong style={{ color:T.gold, letterSpacing:'.1em' }}>{sess.id}</strong> · {new Date(sess.finishedAt||Date.now()).toLocaleDateString('it-IT',{day:'numeric',month:'long',year:'numeric'})}</p>
+        </div>
+
+        {/* KPI cards */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14, marginBottom:28 }}>
+          {[
+            ['Story Points','Total',totalSP],
+            ['Storie Stimate','Estimated',stories.length],
+            ['Media SP','Avg SP',(totalSP/(stories.length||1)).toFixed(1)]
+          ].map(([it,en,v])=>(
+            <div key={it} style={{ background:'rgba(255,255,255,.05)', border:`1px solid ${T.goldDim}`, borderRadius:12, padding:'18px 16px', textAlign:'center' }}>
+              <div style={{ fontSize:'.68rem', color:T.textMuted, textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>{it}<span style={{ opacity:.45 }}> / {en}</span></div>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:'2rem', fontWeight:700, color:T.gold }}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Distribution chart */}
+        <div style={{ background:'rgba(255,255,255,.04)', border:`1px solid ${T.goldDim}`, borderRadius:12, padding:'22px 20px', marginBottom:24 }}>
+          <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:'1rem', color:T.text, marginBottom:18 }}>Distribuzione Stime</h3>
+          <div style={{ display:'flex', alignItems:'flex-end', gap:10, height:100 }}>
+            {fibNums.map(v=>(
+              <div key={v} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                <div style={{ fontSize:'.7rem', color:counts[v]?T.gold:T.textMuted, fontWeight:600 }}>{counts[v]||''}</div>
+                <div style={{ width:'100%', background:counts[v]?T.gold:`${T.gold}18`, borderRadius:'4px 4px 0 0', height:`${counts[v]?(counts[v]/maxCnt)*80+8:4}px`, transition:'height .6s' }} />
+                <div style={{ fontSize:'.78rem', fontFamily:"'Playfair Display',serif", color:T.textMuted }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Stories list */}
+        <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:'1rem', color:T.text, marginBottom:12 }}>User Stories Stimate</h3>
+        {stories.length===0 ? (
+          <p style={{ color:T.textMuted, textAlign:'center', padding:24 }}>Nessuna storia stimata in questa sessione.</p>
+        ) : stories.map((st,i)=>(
+          <div key={st.id||i} style={{ display:'flex', alignItems:'center', gap:14, padding:'13px 16px', borderRadius:10, marginBottom:8, background:'rgba(255,255,255,.04)', border:`1px solid ${T.goldDim}` }}>
+            <div style={{ width:26, height:26, borderRadius:6, background:T.badge, color:T.gold, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'.72rem', fontWeight:700, flexShrink:0 }}>{i+1}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:600, fontSize:'.9rem', color:T.text }}>{st.title}</div>
+              {st.desc && <div style={{ fontSize:'.75rem', color:T.textMuted, marginTop:2 }}>{st.desc}</div>}
+            </div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.6rem', fontWeight:700, color:T.gold, flexShrink:0 }}>{st.estimate} <span style={{ fontSize:'.7rem', color:T.textMuted, fontFamily:'Inter', fontWeight:400 }}>SP</span></div>
+          </div>
+        ))}
+
+        <button onClick={onBack} style={{ display:'block', margin:'28px auto 0', background:'rgba(255,255,255,.07)', border:`1px solid ${T.goldDim}`, borderRadius:9, padding:'12px 30px', color:T.textMuted, cursor:'pointer', fontFamily:'Inter', fontWeight:600, fontSize:'.88rem' }}>
+          ← Torna alla Home
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── PLAYER VIEW ───────────────────────────────────────────────────────────────
+function PlayerView({ initSess, pid, onLeave, T }) {
+  const [sess, setSess] = useState(initSess);
+  const elapsed = useTimer(sess);
+  const me = sess.players.find(p=>p.id===pid);
+
+  useEffect(() => {
+    const h = e => { if(e.key===SESSION_PFX+sess.id){try{setSess(JSON.parse(e.newValue));}catch{}} };
+    window.addEventListener('storage', h);
+    const iv = setInterval(() => { const s=loadSession(sess.id); if(s)setSess(s); }, 900);
+    return () => { window.removeEventListener('storage',h); clearInterval(iv); };
+  }, [sess.id]);
+
+  const castVote = value => {
+    const s = loadSession(sess.id);
+    if (!s||s.phase!=='voting') return;
+    const story = s.stories.find(st=>st.id===s.currentStoryId);
+    if (!story) return;
+    story.votes[pid] = value;
+    saveSession(s); setSess({...s});
+  };
+
+  const story   = sess.stories.find(s=>s.id===sess.currentStoryId);
+  const myVote  = story?.votes?.[pid];
+  const voters  = sess.players.filter(p=>p.role!=='facilitator');
+
+  // Sprint finished — show full report
+  if (sess.phase==='finished') {
+    return <PlayerSprintReport sess={sess} onBack={()=>{ savePlayer(null); onLeave(); }} T={T} />;
+  }
+
+  return (
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, color:T.text, fontFamily:'Inter', overflow:'hidden' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 24px', height:60, borderBottom:`1px solid ${T.panelBorder}`, background:'rgba(0,0,0,.3)', flexShrink:0 }}>
+        <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, color:T.gold }}>Planning Poker</span>
+        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+          {sess.phase==='voting' && <TimerBar elapsed={elapsed} limit={sess.timerLimit} T={T} />}
+          <span style={{ fontSize:'.83rem', color:T.textMuted }}>👤 {me?.name}</span>
+          <div style={{ background:T.badge, border:`1px solid ${T.badgeBorder}`, borderRadius:6, padding:'4px 12px' }}>
+            <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, letterSpacing:'.2em', color:T.gold }}>{sess.id}</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:32, overflowY:'auto' }}>
+        {(!story || sess.phase==='lobby') ? (
+          <div style={{ textAlign:'center' }} className="fade-in">
+            <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:32, opacity:.4 }}>
+              {FIBONACCI.map(v=><PlayingCard key={v} value={v} size="sm" faceDown T={T} />)}
+            </div>
+            <p style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.5rem', color:T.textMuted, fontWeight:400 }}>In attesa del facilitatore…</p>
+          </div>
+        ) : sess.phase==='voting' ? (
+          <div style={{ width:'100%', maxWidth:660 }} className="fade-in">
+            <div style={{ textAlign:'center', marginBottom:36 }}>
+              <div style={{ fontSize:'.72rem', color:T.textMuted, textTransform:'uppercase', letterSpacing:'.1em', marginBottom:8 }}>Storia in votazione</div>
+              <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.8rem', color:T.text, lineHeight:1.3 }}>{story.title}</h2>
+              {story.desc && <p style={{ color:T.textMuted, marginTop:8, fontSize:'.9rem' }}>{story.desc}</p>}
+            </div>
+
+            {/* Other players' status */}
+            <div style={{ display:'flex', gap:10, justifyContent:'center', flexWrap:'wrap', marginBottom:32 }}>
+              {voters.map(p=>(
+                <div key={p.id} style={{ textAlign:'center' }}>
+                  <PlayingCard
+                    value={p.id===pid && myVote!==undefined ? myVote : '?'}
+                    faceDown={p.id!==pid || myVote===undefined}
+                    size="sm" T={T} />
+                  <div style={{ fontSize:'.65rem', color:T.textMuted, marginTop:5, maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Voting felt */}
+            <div style={{ background:T.felt, border:`1px solid ${T.feltBorder}`, borderRadius:16, padding:'28px 24px', boxShadow:'inset 0 2px 12px rgba(0,0,0,.3)' }}>
+              <div style={{ fontSize:'.78rem', color:T.textMuted, textAlign:'center', marginBottom:20, textTransform:'uppercase', letterSpacing:'.1em' }}>
+                {myVote!==undefined ? `Voto: ${myVote} — puoi cambiare / You voted: ${myVote} — tap to change` : 'Seleziona la tua stima / Select your estimate'}
+              </div>
+              <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
+                {FIBONACCI.map(v=><PlayingCard key={v} value={v} selected={myVote===v} onClick={()=>castVote(v)} size="md" T={T} />)}
+              </div>
+            </div>
+          </div>
+        ) : sess.phase==='revealed' ? (
+          <ResultsPanel session={sess} story={story} readonly T={T} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ── HISTORY VIEW ──────────────────────────────────────────────────────────────
+function HistoryView({ onBack, T }) {
+  const history = useMemo(loadHistory, []);
+  const [sel, setSel] = useState(history[0]||null);
+
+  const allEst  = sel ? sel.stories.map(s=>s.estimate).filter(Boolean) : [];
+  const counts  = {};
+  FIBONACCI.filter(v=>typeof v==='number').forEach(v=>{ counts[v]=allEst.filter(e=>e===v).length; });
+  const maxCnt  = Math.max(...Object.values(counts), 1);
+  const totalSP = allEst.reduce((s,v)=>s+v,0);
+
+  return (
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, color:T.text, fontFamily:'Inter', overflow:'hidden' }}>
+      <div style={{ display:'flex', alignItems:'center', padding:'0 24px', height:60, borderBottom:`1px solid ${T.panelBorder}`, background:'rgba(0,0,0,.3)', gap:16, flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:'none', border:`1px solid ${T.goldDim}`, borderRadius:7, padding:'7px 16px', color:T.textMuted, cursor:'pointer', fontFamily:'Inter', fontSize:'.83rem' }}>← Indietro</button>
+        <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.25rem', color:T.gold }}>Storico Sprint</h1>
+      </div>
+      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+        {/* List */}
+        <div style={{ width:270, borderRight:`1px solid ${T.panelBorder}`, overflowY:'auto', padding:14, background:'rgba(0,0,0,.12)', flexShrink:0 }}>
+          {history.length===0 ? (
+            <p style={{ color:T.textMuted, textAlign:'center', marginTop:40, fontSize:'.88rem' }}>Nessuna sessione completata</p>
+          ) : history.map(h=>(
+            <div key={h.id} onClick={()=>setSel(h)} style={{ padding:'12px 14px', borderRadius:10, marginBottom:9, border:`1px solid ${sel?.id===h.id?T.gold:T.goldDim}`, background:sel?.id===h.id?`${T.gold}12`:'rgba(255,255,255,.03)', cursor:'pointer', transition:'all .15s' }}>
+              <div style={{ fontWeight:700, color:T.gold, fontFamily:"'Playfair Display',serif", marginBottom:4, letterSpacing:'.06em' }}>{h.id}</div>
+              <div style={{ fontSize:'.78rem', color:T.textMuted }}>
+                {new Date(h.date).toLocaleDateString('it-IT')} · {h.stories.length} storie · {h.players} 👥
+              </div>
+              <div style={{ fontSize:'.78rem', color:T.textMuted, marginTop:2 }}>
+                {h.stories.reduce((s,st)=>s+(st.estimate||0),0)} SP totali
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Detail */}
+        {sel ? (
+          <div style={{ flex:1, overflowY:'auto', padding:36 }} className="fade-in">
+            <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.7rem', color:T.text, marginBottom:6 }}>Sprint Report — {sel.id}</h2>
+            <p style={{ color:T.textMuted, marginBottom:32, fontSize:'.88rem' }}>
+              {new Date(sel.date).toLocaleDateString('it-IT',{weekday:'long',year:'numeric',month:'long',day:'numeric'})} · {sel.players} partecipanti
+            </p>
+
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, marginBottom:32 }}>
+              {[['Story Points Totali',totalSP],['Storie Stimate',sel.stories.length],['Media SP/Storia',(totalSP/(sel.stories.length||1)).toFixed(1)]].map(([l,v])=>(
+                <div key={l} style={{ background:'rgba(255,255,255,.05)', border:`1px solid ${T.goldDim}`, borderRadius:12, padding:'18px 20px' }}>
+                  <div style={{ fontSize:'.7rem', color:T.textMuted, marginBottom:6, textTransform:'uppercase', letterSpacing:'.07em' }}>{l}</div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:'2rem', fontWeight:700, color:T.gold }}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Distribution chart */}
+            <div style={{ background:'rgba(255,255,255,.04)', border:`1px solid ${T.goldDim}`, borderRadius:12, padding:24, marginBottom:28 }}>
+              <h3 style={{ fontFamily:"'Playfair Display',serif", marginBottom:20, fontSize:'1.05rem' }}>Distribuzione Stime</h3>
+              <div style={{ display:'flex', alignItems:'flex-end', gap:10, height:120, paddingBottom:4 }}>
+                {FIBONACCI.filter(v=>typeof v==='number').map(v=>(
+                  <div key={v} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:5 }}>
+                    <div style={{ fontSize:'.7rem', color:counts[v]?T.gold:T.textMuted, fontWeight:600 }}>{counts[v]||''}</div>
+                    <div style={{ width:'100%', background:counts[v]?T.gold:`${T.gold}18`, borderRadius:'4px 4px 0 0', height:`${counts[v]?(counts[v]/maxCnt)*90+10:4}px`, transition:'height .5s' }} />
+                    <div style={{ fontSize:'.78rem', fontFamily:"'Playfair Display',serif", color:T.textMuted }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <h3 style={{ fontFamily:"'Playfair Display',serif", marginBottom:14, fontSize:'1.05rem' }}>User Stories</h3>
+            {sel.stories.map((st,i)=>(
+              <div key={st.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'13px 16px', borderRadius:10, marginBottom:8, background:'rgba(255,255,255,.04)', border:`1px solid ${T.goldDim}` }}>
+                <div style={{ width:26, height:26, borderRadius:6, background:T.badge, color:T.gold, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'.72rem', fontWeight:700, flexShrink:0 }}>{i+1}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:600, fontSize:'.9rem' }}>{st.title}</div>
+                  {st.desc && <div style={{ fontSize:'.78rem', color:T.textMuted, marginTop:2 }}>{st.desc}</div>}
+                </div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:'1.5rem', fontWeight:700, color:T.gold, flexShrink:0 }}>{st.estimate}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:T.textMuted }}>Seleziona una sessione</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── APP ROOT ──────────────────────────────────────────────────────────────────
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "royal",
+  "timerLimit": 120,
+  "autoReveal": true
+}/*EDITMODE-END*/;
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [view, setView]   = useState('home');
+  const [sess, setSess]   = useState(null);
+  const [pid,  setPid]    = useState(null);
+
+  const T = THEMES[t.theme] || THEMES.casino;
+
+  useEffect(() => {
+    const p = loadPlayer();
+    if (!p) return;
+    const s = loadSession(p.sessionId);
+    if (s) { setSess(s); setPid(p.id); setView(p.role==='facilitator'?'facilitator':'player'); }
+  }, []);
+
+  const onReady = (s, p, special) => {
+    if (special==='history') { setView('history'); return; }
+    setSess(s); setPid(p);
+    const pl = loadPlayer();
+    setView(pl?.role==='facilitator'?'facilitator':'player');
+  };
+
+  const onEnd = () => { savePlayer(null); setSess(null); setPid(null); setView('history'); };
+
+  return (
+    <>
+      {view==='home'        && <HomeView        onReady={onReady} timerLimit={t.timerLimit} T={T} />}
+      {view==='facilitator' && <FacilitatorView initSess={sess} pid={pid} onEnd={onEnd} autoReveal={t.autoReveal} T={T} />}
+      {view==='player'      && <PlayerView      initSess={sess} pid={pid} onLeave={()=>setView('home')} T={T} />}
+      {view==='history'     && <HistoryView     onBack={()=>setView('home')} T={T} />}
+
+      <TweaksPanel>
+        <TweakSection label="Tema / Theme" />
+        <TweakRadio label="Stile visivo" value={t.theme}
+          options={['casino','midnight','royal']}
+          labels={['🎰 Casino Classic','🌙 Midnight Blue','♥ Royal Burgundy']}
+          onChange={v=>setTweak('theme',v)} />
+        <TweakSection label="Sessione / Session" />
+        <TweakSlider label="Timer per storia (sec)" value={t.timerLimit} min={30} max={300} step={15} unit="s"
+          onChange={v=>setTweak('timerLimit',v)} />
+        <TweakToggle label="Auto-rivela quando tutti votano" value={t.autoReveal}
+          onChange={v=>setTweak('autoReveal',v)} />
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
