@@ -1,39 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import PlayingCard from '../components/PlayingCard.jsx';
 import TimerBar from '../components/TimerBar.jsx';
 import ResultsPanel from '../components/ResultsPanel.jsx';
 import PlayerSprintReport from './PlayerSprintReport.jsx';
 import { useTimer } from '../hooks/useTimer.js';
-import { loadSession, saveSession, savePlayer, SESSION_PFX } from '../utils/storage.js';
+import { castVote as castVoteApi } from '../services/realtimeClient.js';
 import { FIBONACCI } from '../themes.js';
 
 export default function PlayerView({ initSess, pid, onLeave, T }) {
-  const [sess, setSess] = useState(initSess);
+  const sess = initSess;
+  const [err, setErr] = useState('');
   const elapsed = useTimer(sess);
   const me = sess.players.find((p) => p.id === pid);
 
-  useEffect(() => {
-    const h = (e) => {
-      if (e.key === SESSION_PFX + sess.id) {
-        try { setSess(JSON.parse(e.newValue)); } catch { }
-      }
-    };
-    window.addEventListener('storage', h);
-    const iv = setInterval(() => {
-      const s = loadSession(sess.id);
-      if (s) setSess(s);
-    }, 900);
-    return () => { window.removeEventListener('storage', h); clearInterval(iv); };
-  }, [sess.id]);
-
-  const castVote = (value) => {
-    const s = loadSession(sess.id);
-    if (!s || s.phase !== 'voting') return;
-    const story = s.stories.find((st) => st.id === s.currentStoryId);
-    if (!story) return;
-    story.votes[pid] = value;
-    saveSession(s);
-    setSess({ ...s });
+  const castVote = async (value) => {
+    setErr('');
+    try {
+      await castVoteApi({ sessionId: sess.id, playerId: pid, value });
+    } catch (error) {
+      setErr(error.message);
+    }
   };
 
   const story = sess.stories.find((s) => s.id === sess.currentStoryId);
@@ -56,6 +42,11 @@ export default function PlayerView({ initSess, pid, onLeave, T }) {
           </div>
         </div>
       </div>
+      {err && (
+        <div style={{ background: `${T.danger}22`, borderBottom: `1px solid ${T.danger}66`, color: T.text, padding: '8px 24px', fontSize: '.82rem' }}>
+          {err}
+        </div>
+      )}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, overflowY: 'auto' }}>
         {(!story || sess.phase === 'lobby') ? (

@@ -1,5 +1,5 @@
 import { FIBONACCI } from '../themes.js';
-import { savePlayer } from '../utils/storage.js';
+import { clearPlayer } from '../utils/clientIdentity.js';
 
 export default function PlayerSprintReport({ sess, onBack, T }) {
   const stories = sess.finishedStories || sess.stories.filter((s) => s.status === 'done');
@@ -66,7 +66,7 @@ export default function PlayerSprintReport({ sess, onBack, T }) {
           </div>
         ))}
 
-        <button onClick={() => { savePlayer(null); onBack(); }} style={{ display: 'block', margin: '28px auto 0', background: 'rgba(255,255,255,.07)', border: `1px solid ${T.goldDim}`, borderRadius: 9, padding: '12px 30px', color: T.textMuted, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600, fontSize: '.88rem' }}>
+        <button onClick={() => { clearPlayer(); onBack(); }} style={{ display: 'block', margin: '28px auto 0', background: 'rgba(255,255,255,.07)', border: `1px solid ${T.goldDim}`, borderRadius: 9, padding: '12px 30px', color: T.textMuted, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600, fontSize: '.88rem' }}>
           ← Torna alla Home
         </button>
       </div>

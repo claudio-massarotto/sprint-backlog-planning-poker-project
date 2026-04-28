@@ -1,32 +1,32 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import PlayingCard from '../components/PlayingCard.jsx';
 import TimerBar from '../components/TimerBar.jsx';
 import ResultsPanel from '../components/ResultsPanel.jsx';
 import { useTimer } from '../hooks/useTimer.js';
-import { loadSession, saveSession, loadHistory, saveHistory, savePlayer, genId, SESSION_PFX } from '../utils/storage.js';
+import {
+  acceptEstimate as acceptEstimateApi,
+  addStory as addStoryApi,
+  finishSprint as finishSprintApi,
+  getServerInfo,
+  revealVotes,
+  revote as revoteApi,
+  startVoting as startVotingApi,
+} from '../services/realtimeClient.js';
+import { copyText } from '../utils/copyText.js';
 
 export default function FacilitatorView({ initSess, pid, onEnd, autoReveal, T }) {
-  const [sess, setSess] = useState(initSess);
+  const sess = initSess;
   const [tab, setTab] = useState('stories');
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ title: '', desc: '' });
+  const [err, setErr] = useState('');
+  const [serverInfo, setServerInfo] = useState(null);
+  const [copiedUrl, setCopiedUrl] = useState('');
   const elapsed = useTimer(sess);
 
-  const sync = useCallback(() => {
-    const s = loadSession(sess.id);
-    if (s) setSess(s);
-  }, [sess.id]);
-
   useEffect(() => {
-    const h = (e) => {
-      if (e.key === SESSION_PFX + sess.id) {
-        try { setSess(JSON.parse(e.newValue)); } catch { }
-      }
-    };
-    window.addEventListener('storage', h);
-    const iv = setInterval(sync, 900);
-    return () => { window.removeEventListener('storage', h); clearInterval(iv); };
-  }, [sess.id, sync]);
+    getServerInfo().then(setServerInfo).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!autoReveal || sess.phase !== 'voting' || !sess.currentStoryId) return;
@@ -34,69 +34,65 @@ export default function FacilitatorView({ initSess, pid, onEnd, autoReveal, T })
     if (!story) return;
     const voters = sess.players.filter((p) => p.role !== 'facilitator');
     if (voters.length > 0 && voters.every((p) => story.votes[p.id] !== undefined)) {
-      mutate((s) => ({
-        ...s, phase: 'revealed',
-        stories: s.stories.map((st) => st.id === s.currentStoryId ? { ...st, status: 'revealed' } : st),
-      }));
+      reveal();
     }
   }, [sess]);
 
-  const mutate = (fn) => {
-    setSess((prev) => {
-      const next = fn({ ...prev, stories: [...prev.stories], players: [...prev.players] });
-      saveSession(next);
-      return next;
+  const run = async (fn) => {
+    setErr('');
+    try {
+      await fn();
+    } catch (error) {
+      setErr(error.message);
+    }
+  };
+
+  const addStory = async () => {
+    if (!form.title.trim()) return;
+    await run(async () => {
+      await addStoryApi({ sessionId: sess.id, playerId: pid, title: form.title.trim(), desc: form.desc.trim() });
+      setForm({ title: '', desc: '' });
+      setShowAdd(false);
     });
   };
 
-  const addStory = () => {
-    if (!form.title.trim()) return;
-    mutate((s) => ({
-      ...s,
-      stories: [...s.stories, { id: genId(10), title: form.title.trim(), desc: form.desc.trim(), status: 'pending', votes: {}, estimate: null }],
-    }));
-    setForm({ title: '', desc: '' });
-    setShowAdd(false);
-  };
+  const startVoting = (storyId) => run(() =>
+    startVotingApi({ sessionId: sess.id, playerId: pid, storyId })
+  );
 
-  const startVoting = (storyId) => mutate((s) => ({
-    ...s, currentStoryId: storyId, phase: 'voting', timerStart: Date.now(),
-    stories: s.stories.map((st) =>
-      st.id === storyId ? { ...st, status: 'voting', votes: {} }
-        : st.status === 'voting' ? { ...st, status: 'pending' } : st
-    ),
-  }));
+  const reveal = () => run(() => revealVotes({ sessionId: sess.id, playerId: pid }));
 
-  const reveal = () => mutate((s) => ({
-    ...s, phase: 'revealed',
-    stories: s.stories.map((st) => st.id === s.currentStoryId ? { ...st, status: 'revealed' } : st),
-  }));
+  const acceptEstimate = (estimate) => run(() =>
+    acceptEstimateApi({ sessionId: sess.id, playerId: pid, estimate })
+  );
 
-  const acceptEstimate = (est) => mutate((s) => ({
-    ...s, phase: 'lobby', currentStoryId: null, timerStart: null,
-    stories: s.stories.map((st) => st.id === s.currentStoryId ? { ...st, status: 'done', estimate: est } : st),
-  }));
+  const revote = () => run(() => revoteApi({ sessionId: sess.id, playerId: pid }));
 
-  const revote = () => mutate((s) => ({
-    ...s, phase: 'voting', timerStart: Date.now(),
-    stories: s.stories.map((st) => st.id === s.currentStoryId ? { ...st, votes: {}, status: 'voting' } : st),
-  }));
-
-  const finishSprint = () => {
+  const finishSprint = async () => {
     const done = sess.stories.filter((s) => s.status === 'done');
     if (done.length === 0 && !window.confirm('Nessuna storia stimata. Terminare lo sprint?')) return;
-    const h = loadHistory();
-    const record = { id: sess.id, date: Date.now(), stories: done, players: sess.players.length };
-    h.unshift(record);
-    saveHistory(h);
-    mutate((s) => ({ ...s, phase: 'finished', finishedAt: Date.now(), finishedStories: done }));
-    setTimeout(() => { savePlayer(null); onEnd(); }, 400);
+    await run(async () => {
+      await finishSprintApi({ sessionId: sess.id, playerId: pid });
+      setTimeout(onEnd, 400);
+    });
   };
 
   const story = sess.stories.find((s) => s.id === sess.currentStoryId);
   const voters = sess.players.filter((p) => p.role !== 'facilitator');
   const votesCnt = story ? Object.keys(story.votes).length : 0;
   const doneCnt = sess.stories.filter((s) => s.status === 'done').length;
+  const shareUrls = [
+    ...(serverInfo?.localUrls || []),
+    serverInfo?.publicUrl,
+  ].filter(Boolean);
+  const inviteUrl = shareUrls[0] || serverInfo?.baseUrl || window.location.origin;
+
+  const copyAddress = async (url) => {
+    const copied = await copyText(url);
+    if (!copied) return;
+    setCopiedUrl(url);
+    setTimeout(() => setCopiedUrl((current) => current === url ? '' : current), 1600);
+  };
 
   const inp = {
     background: 'rgba(255,255,255,.07)', border: `1px solid ${T.goldDim}`,
@@ -114,23 +110,48 @@ export default function FacilitatorView({ initSess, pid, onEnd, autoReveal, T })
     }}>{label}</button>
   );
 
+  const addressPill = (url, label) => (
+    <button key={url} onClick={() => copyAddress(url)} title={`Copia ${url}`} style={{
+      background: 'rgba(255,255,255,.06)',
+      border: `1px solid ${T.goldDim}`,
+      borderRadius: 7,
+      padding: '6px 9px',
+      color: copiedUrl === url ? T.success : T.textMuted,
+      cursor: 'pointer',
+      fontFamily: 'Inter',
+      fontSize: '.74rem',
+      maxWidth: 230,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    }}>
+      {copiedUrl === url ? 'Copiato' : `${label}: ${url.replace(/^https?:\/\//, '')}`}
+    </button>
+  );
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.bg, color: T.text, fontFamily: 'Inter', overflow: 'hidden' }}>
       {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', height: 60, borderBottom: `1px solid ${T.panelBorder}`, background: 'rgba(0,0,0,.3)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '8px 24px', minHeight: 60, borderBottom: `1px solid ${T.panelBorder}`, background: 'rgba(0,0,0,.3)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', minWidth: 0 }}>
           <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, color: T.gold, fontSize: '1.15rem' }}>Planning Poker</span>
           <div style={{ background: T.badge, border: `1px solid ${T.badgeBorder}`, borderRadius: 6, padding: '4px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
             <span style={{ fontSize: '.7rem', color: T.textMuted, textTransform: 'uppercase', letterSpacing: '.08em' }}>Session</span>
             <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, letterSpacing: '.22em', color: T.gold, fontSize: '1.1rem' }}>{sess.id}</span>
           </div>
+          {shareUrls.map((url) => addressPill(url, url === serverInfo?.publicUrl ? 'WWW' : 'LAN'))}
           <span style={{ fontSize: '.82rem', color: T.textMuted }}>👥 {sess.players.length} · ✅ {doneCnt}/{sess.stories.length}</span>
         </div>
-        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexShrink: 0 }}>
           {sess.phase === 'voting' && <TimerBar elapsed={elapsed} limit={sess.timerLimit} T={T} />}
           <button onClick={finishSprint} style={{ background: 'rgba(255,255,255,.07)', border: `1px solid ${T.goldDim}`, borderRadius: 7, padding: '7px 14px', color: T.textMuted, cursor: 'pointer', fontFamily: 'Inter', fontSize: '.8rem' }}>Fine Sprint</button>
         </div>
       </div>
+      {err && (
+        <div style={{ background: `${T.danger}22`, borderBottom: `1px solid ${T.danger}66`, color: T.text, padding: '8px 24px', fontSize: '.82rem' }}>
+          {err}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Sidebar */}
@@ -190,7 +211,9 @@ export default function FacilitatorView({ initSess, pid, onEnd, autoReveal, T })
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: '.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                    <div style={{ fontSize: '.72rem', color: T.textMuted }}>{p.role === 'facilitator' ? '👑 Facilitatore' : '🎴 Player'}</div>
+                    <div style={{ fontSize: '.72rem', color: T.textMuted }}>
+                      {p.role === 'facilitator' ? '👑 Facilitatore' : '🎴 Player'} · {p.connected ? 'online' : 'offline'}
+                    </div>
                   </div>
                   {story && sess.phase === 'voting' && p.role !== 'facilitator' && (
                     <span style={{ fontSize: '.82rem', color: story.votes[p.id] !== undefined ? T.success : T.textMuted }}>
@@ -214,7 +237,7 @@ export default function FacilitatorView({ initSess, pid, onEnd, autoReveal, T })
                 {sess.stories.length === 0 ? 'Aggiungi user stories per iniziare' : 'Clicca una storia per avviare la votazione'}
               </p>
               <p style={{ color: T.textMuted, marginTop: 12, fontSize: '.88rem', opacity: .6 }}>
-                Condividi il codice <strong style={{ color: T.gold, letterSpacing: '.15em' }}>{sess.id}</strong> con il team
+                Condividi <strong style={{ color: T.gold }}>{inviteUrl}</strong> e il codice <strong style={{ color: T.gold, letterSpacing: '.15em' }}>{sess.id}</strong> con il team
               </p>
             </div>
           ) : sess.phase === 'voting' ? (

@@ -1,0 +1,41 @@
+[
+  {
+    "id": "UZOJ",
+    "date": 1777385162362,
+    "stories": [],
+    "players": 1
+  },
+  {
+    "id": "LRNN",
+    "date": 1777384085128,
+    "stories": [],
+    "players": 1
+  },
+  {
+    "id": "QBYH",
+    "date": 1777383434392,
+    "stories": [
+      {
+        "id": "94DZQPQR0E",
+        "title": "Test",
+        "desc": "Test",
+        "status": "done",
+        "votes": {
+          "1V87C6O8I8": 5
+        },
+        "estimate": 5
+      },
+      {
+        "id": "L3G9VTY635",
+        "title": "Test 2",
+        "desc": "Test 2",
+        "status": "done",
+        "votes": {
+          "1V87C6O8I8": 1
+        },
+        "estimate": 1
+      }
+    ],
+    "players": 2
+  }
+]

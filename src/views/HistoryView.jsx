@@ -1,10 +1,22 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { FIBONACCI } from '../themes.js';
-import { loadHistory } from '../utils/storage.js';
+import { getHistory } from '../services/realtimeClient.js';
 
 export default function HistoryView({ onBack, T }) {
-  const history = useMemo(loadHistory, []);
-  const [sel, setSel] = useState(history[0] || null);
+  const [history, setHistory] = useState([]);
+  const [sel, setSel] = useState(null);
+
+  useEffect(() => {
+    getHistory()
+      .then((items) => {
+        setHistory(items);
+        setSel(items[0] || null);
+      })
+      .catch(() => {
+        setHistory([]);
+        setSel(null);
+      });
+  }, []);
 
   const allEst = sel ? sel.stories.map((s) => s.estimate).filter(Boolean) : [];
   const counts = {};

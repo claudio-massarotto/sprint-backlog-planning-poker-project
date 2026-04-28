@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { THEMES } from './themes.js';
-import { loadPlayer, loadSession, savePlayer } from './utils/storage.js';
+import { clearPlayer, loadPlayer, savePlayer } from './utils/clientIdentity.js';
+import { resumeSession, subscribeSession } from './services/realtimeClient.js';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSlider, TweakToggle } from './components/TweaksPanel.jsx';
 import HomeView from './views/HomeView.jsx';
 import FacilitatorView from './views/FacilitatorView.jsx';
@@ -18,34 +19,63 @@ export default function App() {
   const [view, setView] = useState('home');
   const [sess, setSess] = useState(null);
   const [pid, setPid] = useState(null);
+  const [player, setPlayer] = useState(null);
 
   const T = THEMES[t.theme] || THEMES.casino;
 
   useEffect(() => {
+    let ignore = false;
     const p = loadPlayer();
     if (!p) return;
-    const s = loadSession(p.sessionId);
-    if (s) {
-      setSess(s);
-      setPid(p.id);
-      setView(p.role === 'facilitator' ? 'facilitator' : 'player');
-    }
+    resumeSession({ sessionId: p.sessionId, playerId: p.id })
+      .then(({ session, player: resumed }) => {
+        if (ignore) return;
+        savePlayer(resumed);
+        setSess(session);
+        setPid(resumed.id);
+        setPlayer(resumed);
+        setView(resumed.role === 'facilitator' ? 'facilitator' : 'player');
+      })
+      .catch(() => {
+        if (ignore) return;
+        clearPlayer();
+      });
+    return () => { ignore = true; };
   }, []);
+
+  useEffect(() => {
+    if (!sess?.id || !pid || view === 'home' || view === 'history') return;
+    return subscribeSession({
+      sessionId: sess.id,
+      playerId: pid,
+      onSnapshot: setSess,
+    });
+  }, [sess?.id, pid, view]);
 
   const onReady = (s, p, special) => {
     if (special === 'history') { setView('history'); return; }
+    const nextPlayer = typeof p === 'string'
+      ? { id: p, sessionId: s.id, role: 'player' }
+      : p;
+    savePlayer(nextPlayer);
     setSess(s);
-    setPid(p);
-    const pl = loadPlayer();
-    setView(pl?.role === 'facilitator' ? 'facilitator' : 'player');
+    setPid(nextPlayer.id);
+    setPlayer(nextPlayer);
+    setView(nextPlayer.role === 'facilitator' ? 'facilitator' : 'player');
   };
 
-  const onEnd = () => { savePlayer(null); setSess(null); setPid(null); setView('history'); };
+  const onEnd = () => {
+    clearPlayer();
+    setSess(null);
+    setPid(null);
+    setPlayer(null);
+    setView('history');
+  };
 
   return (
     <>
       {view === 'home'        && <HomeView        onReady={onReady} timerLimit={t.timerLimit} T={T} />}
-      {view === 'facilitator' && <FacilitatorView initSess={sess} pid={pid} onEnd={onEnd} autoReveal={t.autoReveal} T={T} />}
+      {view === 'facilitator' && <FacilitatorView initSess={sess} pid={pid} player={player} onEnd={onEnd} autoReveal={t.autoReveal} T={T} />}
       {view === 'player'      && <PlayerView      initSess={sess} pid={pid} onLeave={() => setView('home')} T={T} />}
       {view === 'history'     && <HistoryView     onBack={() => setView('home')} T={T} />}
 
